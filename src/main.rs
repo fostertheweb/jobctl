@@ -1,56 +1,50 @@
 use clap::Parser;
-use jobctl::cli::{Cli, Commands};
-use jobctl::sessions::{connect, encode_path};
+use jobctl::cli::{Cli, Commands, ZSH};
+use jobctl::sessions::ClientRequest;
 use std::env;
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
+use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
 
 fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
     let cwd = env::current_dir().expect("Failed to get current directory");
-    let uid = unsafe { libc::getuid() };
-    let socket_path = format!("/tmp/jobctl-{}.sock", uid);
-    let _session_id = encode_path(&cwd);
-
-    let mut resp_line = String::new();
 
     match &cli.command {
         Some(Commands::List) => {
-            let mut stream = connect(Path::new(&socket_path));
-            let mut reader =
-                BufReader::new(stream.try_clone().expect("Failed to clone UnixStream"));
-            let json = serde_json::to_string(&cli.command).unwrap();
-
-            writeln!(stream, "{}", json)?;
-
-            reader
-                .read_line(&mut resp_line)
-                .expect("Failed to read response");
-
-            let response: serde_json::Value =
-                serde_json::from_str(&resp_line).expect("Failed to parse JSON response");
-
+            let request = ClientRequest {
+                action: Commands::List,
+                cwd,
+            };
+            let response = jobctl::sessions::send_request(request, None);
             println!("{}", serde_json::to_string_pretty(&response).unwrap());
         }
-        Some(Commands::Attach { target }) => {
-            match target {
-                Some(target) => {
-                    println!("Attaching to {}", target);
-                    // attach to background job via PID
-                }
-                None => {
-                    println!("Registering job with server");
-                    // register background job with server
-                }
-            }
+        Some(Commands::Register { pid, .. }) => {
+            let sys = System::new_with_specifics(
+                RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
+            );
+            let process = sys
+                .process(Pid::from(*pid as usize))
+                .expect(format!("Did not find process with pid {}", pid).as_str());
+            let request = ClientRequest {
+                action: Commands::Register {
+                    pid: *pid,
+                    command: process.name().to_string_lossy().into(),
+                    suspended: SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                },
+                cwd,
+            };
+            let response = jobctl::sessions::send_request(request, Some(true));
+            println!("{}", serde_json::to_string_pretty(&response).unwrap());
         }
-        Some(Commands::Kill { target }) => {
-            println!("Killing {}", target);
-            // kill background job via PID
-        }
-        Some(Commands::Rename { target }) => {
-            println!("Rename {}", target);
-            // rename background job via PID
+        Some(Commands::Init { shell }) => {
+            let output = match shell.as_str() {
+                "zsh" => ZSH,
+                _ => "Shell not supported.",
+            };
+            println!("{}", output);
         }
         None => {}
     }

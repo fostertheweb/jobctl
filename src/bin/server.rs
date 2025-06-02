@@ -6,34 +6,22 @@ use std::{
     io::{BufRead, BufReader, Write},
     os::unix::net::{UnixListener, UnixStream},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
-use jobctl::cli::{Commands, ServerResponse};
-use jobctl::sessions::Job;
+use jobctl::cli::Commands;
+use jobctl::sessions::{ClientRequest, Job, ServerResponse};
 
 fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut line = String::new();
-    let mut jobs = HashMap::new();
-
-    let job = Job {
-        pid: 42,
-        session: 0,
-        cmd: vec!["neovim".to_string(), "README.md".to_string()],
-        cwd: String::from("/Users/jonathan/.dotfiles"),
-        name: String::from("editor"),
-        started: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs(),
-    };
-    jobs.insert(String::from("editor"), job);
 
     reader.read_line(&mut line)?;
 
-    let req: Commands = match serde_json::from_str(&line) {
-        Ok(r) => r,
+    let req: ClientRequest = match serde_json::from_str(&line) {
+        Ok(r) => {
+            println!("{}", serde_json::to_string_pretty(&r).unwrap());
+            r
+        }
         Err(e) => {
             let err = ServerResponse::Error {
                 message: format!("invalid request: {}", e),
@@ -44,11 +32,25 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
         }
     };
 
-    let response = match req {
-        Commands::List => ServerResponse::List { jobs },
-        Commands::Attach { target } => todo!(),
-        Commands::Kill { target } => todo!(),
-        Commands::Rename { target } => todo!(),
+    let response = match req.action {
+        Commands::List => ServerResponse::List {
+            jobs: HashMap::new(),
+        },
+        Commands::Register {
+            pid,
+            command,
+            suspended,
+        } => {
+            let job = Job {
+                suspended,
+                cwd: req.cwd,
+                pid: pid,
+                cmd: command,
+            };
+
+            ServerResponse::Register { job }
+        }
+        Commands::Init { shell } => ServerResponse::Init { shell },
     };
 
     let payload = serde_json::to_string(&response).unwrap();
@@ -59,7 +61,6 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
 
 fn main() -> std::io::Result<()> {
     let uid = unsafe { libc::getuid() };
-    // consider creating jobctl-{uid} directory first with dfeault.sock
     let socket_path = format!("/tmp/jobctl-{}.sock", uid);
     if let Err(e) = fs::remove_file(PathBuf::from(&socket_path)) {
         match e.kind() {
