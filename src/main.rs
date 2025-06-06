@@ -2,7 +2,6 @@ use clap::Parser;
 use jobctl::cli::{Cli, Commands, ZSH};
 use jobctl::sessions::ClientRequest;
 use std::env;
-use std::time::{SystemTime, UNIX_EPOCH};
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
 
 fn main() -> std::io::Result<()> {
@@ -18,7 +17,7 @@ fn main() -> std::io::Result<()> {
             let response = jobctl::sessions::send_request(request, None);
             println!("{}", serde_json::to_string_pretty(&response).unwrap());
         }
-        Some(Commands::Register { pid, .. }) => {
+        Some(Commands::Register { pid, number, .. }) => {
             let sys = System::new_with_specifics(
                 RefreshKind::nothing().with_processes(ProcessRefreshKind::everything()),
             );
@@ -28,11 +27,8 @@ fn main() -> std::io::Result<()> {
             let request = ClientRequest {
                 action: Commands::Register {
                     pid: *pid,
+                    number: *number,
                     command: process.name().to_string_lossy().into(),
-                    suspended: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
                 },
                 cwd,
             };

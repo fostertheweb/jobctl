@@ -7,7 +7,7 @@ pub const ZSH: &str = include_str!("../resources/hooks.zsh");
 #[command(version, about, long_about = None)]
 pub struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count)]
-    debug: u8,
+    verbose: u8,
 
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -18,13 +18,21 @@ pub struct Cli {
 pub enum Commands {
     List,
     Register {
+        #[arg(short, long)]
         pid: u32,
+        #[arg(short, long)]
+        number: u8,
         #[arg(skip)]
         command: String,
-        #[arg(skip)]
-        suspended: u64,
     },
     Init {
         shell: String,
     },
+}
+
+#[derive(Parser)]
+#[command(author, version, about)]
+pub struct ServerArgs {
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 }

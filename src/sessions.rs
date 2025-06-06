@@ -5,28 +5,22 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
+use std::process::{self, Command};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{env, thread};
 
 use crate::cli::Commands;
+use crate::utils::is_job_suspended;
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "snake_case")]
-pub struct Session {
-    id: u32,
-    cwd: String,
-    jobs: Vec<Job>,
-    started: u64,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct Job {
     pub pid: u32,
-    pub cmd: String,
+    pub command: String,
     pub cwd: PathBuf,
+    pub number: u8,
     pub suspended: u64,
 }
 
@@ -41,13 +35,13 @@ pub struct ClientRequest {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ServerResponse {
-    List { jobs: HashMap<String, Job> },
+    List { jobs: HashMap<String, Vec<Job>> },
     Register { job: Job },
     Init { shell: String },
     Error { message: String },
 }
 
-pub fn encode_path(path: &Path) -> String {
+pub fn encode_path(path: &PathBuf) -> String {
     general_purpose::URL_SAFE_NO_PAD.encode(path.to_string_lossy().as_bytes())
 }
 
@@ -73,7 +67,8 @@ pub fn send_request(request: ClientRequest, should_start: Option<bool>) -> Value
                 start_server();
                 UnixStream::connect(&socket_path).expect("Failed to connect to server")
             } else {
-                panic!("Server not running, no sessions found.");
+                println!("Server not running, no sessions found.");
+                process::exit(0);
             }
         }
     };
@@ -89,4 +84,23 @@ pub fn send_request(request: ClientRequest, should_start: Option<bool>) -> Value
     let response: serde_json::Value =
         serde_json::from_str(&resp_line).expect("Failed to parse JSON response");
     response
+}
+
+pub fn cleanup_sessions(
+    store: &Arc<Mutex<HashMap<String, Vec<Job>>>>,
+) -> std::sync::MutexGuard<'_, HashMap<String, Vec<Job>>> {
+    let mut jobs = store.lock().unwrap();
+    let keys = jobs.keys().cloned().collect::<Vec<String>>();
+
+    for key in keys {
+        if jobs.get(&key).iter().len() == 0 {
+            jobs.remove(&key);
+        } else {
+            if let Some(session) = jobs.get_mut(&key) {
+                session.retain(|j| is_job_suspended(j.pid).unwrap_or(false));
+            }
+        }
+    }
+
+    jobs
 }
