@@ -10,6 +10,7 @@ use std::process::{self, Command};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{env, thread};
+use tracing::info;
 
 use crate::cli::Commands;
 use crate::utils::is_job_suspended;
@@ -37,7 +38,6 @@ pub struct ClientRequest {
 pub enum ServerResponse {
     List { jobs: HashMap<String, Vec<Job>> },
     Register { job: Job },
-    Init { shell: String },
     Error { message: String },
 }
 
@@ -89,18 +89,20 @@ pub fn send_request(request: ClientRequest, should_start: Option<bool>) -> Value
 pub fn cleanup_sessions(
     store: &Arc<Mutex<HashMap<String, Vec<Job>>>>,
 ) -> std::sync::MutexGuard<'_, HashMap<String, Vec<Job>>> {
-    let mut jobs = store.lock().unwrap();
-    let keys = jobs.keys().cloned().collect::<Vec<String>>();
+    let mut sessions = store.lock().unwrap();
+    let keys = sessions.keys().cloned().collect::<Vec<String>>();
 
     for key in keys {
-        if jobs.get(&key).iter().len() == 0 {
-            jobs.remove(&key);
-        } else {
-            if let Some(session) = jobs.get_mut(&key) {
-                session.retain(|j| is_job_suspended(j.pid).unwrap_or(false));
+        let cwd = key.clone();
+        if let Some(jobs) = sessions.get_mut(&key) {
+            jobs.retain(|job| is_job_suspended(job.pid));
+
+            if jobs.is_empty() {
+                info!("Removing session for {}", cwd);
+                sessions.remove(&cwd);
             }
         }
     }
 
-    jobs
+    sessions
 }

@@ -36,6 +36,7 @@ fn main() -> std::io::Result<()> {
             println!("{}", serde_json::to_string_pretty(&response).unwrap());
         }
         Some(Commands::Init { shell }) => {
+            // TODO: add bash support
             let output = match shell.as_str() {
                 "zsh" => ZSH,
                 _ => "Shell not supported.",

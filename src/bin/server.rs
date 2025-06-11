@@ -39,9 +39,11 @@ fn handle_client(
         }
     };
 
-    let mut jobs = store.lock().unwrap();
     let response = match req.action {
-        Commands::List => ServerResponse::List { jobs: jobs.clone() },
+        Commands::List => {
+            let jobs = cleanup_sessions(&store);
+            ServerResponse::List { jobs: jobs.clone() }
+        }
         Commands::Register {
             pid,
             number,
@@ -59,6 +61,7 @@ fn handle_client(
                     .as_secs(),
             };
 
+            let mut jobs = store.lock().unwrap();
             let session = jobs.entry(key.to_string()).or_insert(vec![]);
             if session.iter().all(|j| j.pid != job.pid) {
                 session.push(job.clone());
@@ -66,7 +69,7 @@ fn handle_client(
 
             ServerResponse::Register { job }
         }
-        Commands::Init { shell } => ServerResponse::Init { shell },
+        _ => todo!(),
     };
 
     let payload = serde_json::to_string(&response).unwrap();
