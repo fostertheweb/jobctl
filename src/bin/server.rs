@@ -1,6 +1,5 @@
 use clap::Parser;
 use serde_json;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -13,12 +12,9 @@ use std::{
 use tracing::{error, info};
 
 use jobctl::cli::Commands;
-use jobctl::sessions::{ClientRequest, Job, ServerResponse, cleanup_sessions, encode_path};
+use jobctl::sessions::{ClientRequest, Job, ServerResponse, Session, cleanup_sessions};
 
-fn handle_client(
-    mut stream: UnixStream,
-    store: &Arc<Mutex<HashMap<String, Vec<Job>>>>,
-) -> std::io::Result<()> {
+fn handle_client(mut stream: UnixStream, store: &Arc<Mutex<Vec<Session>>>) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut line = String::new();
 
@@ -39,19 +35,31 @@ fn handle_client(
         }
     };
 
+    info!("Processing action: {:?}", req.action);
+
     let response = match req.action {
-        Commands::List => {
-            let jobs = cleanup_sessions(&store);
-            ServerResponse::List { jobs: jobs.clone() }
+        Commands::List { dir } => {
+            let sessions = cleanup_sessions(&store);
+
+            match dir {
+                Some(directory) => {
+                    let session = sessions
+                        .iter()
+                        .find(|s| s.directory == directory)
+                        .expect("No jobs found for directory");
+                    ServerResponse::ListJobs {
+                        jobs: session.clone().jobs,
+                    }
+                }
+                _ => ServerResponse::ListSessions { sessions },
+            }
         }
         Commands::Register {
             pid,
             number,
             command,
         } => {
-            let key = encode_path(&req.cwd);
             let job = Job {
-                cwd: req.cwd,
                 pid,
                 number,
                 command,
@@ -61,10 +69,23 @@ fn handle_client(
                     .as_secs(),
             };
 
-            let mut jobs = store.lock().unwrap();
-            let session = jobs.entry(key.to_string()).or_insert(vec![]);
-            if session.iter().all(|j| j.pid != job.pid) {
-                session.push(job.clone());
+            info!("Creating new job: {:?}", job);
+
+            let mut sessions = store.lock().unwrap();
+            if let Some(session) = sessions.iter_mut().find(|s| s.directory == req.cwd) {
+                if session.jobs.iter().all(|j| j.pid != job.pid) {
+                    session.jobs.push(job.clone());
+                    info!("Adding to job to session: {:?}", session);
+                }
+            } else {
+                let session = Session {
+                    jobs: vec![job.clone()],
+                    directory: req.cwd,
+                };
+
+                info!("No session found, creating session: {:?}", session);
+
+                sessions.push(session);
             }
 
             ServerResponse::Register { job }
@@ -108,7 +129,7 @@ fn main() -> std::io::Result<()> {
             std::process::exit(1);
         }
     };
-    let store: Arc<Mutex<HashMap<String, Vec<Job>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let store: Arc<Mutex<Vec<Session>>> = Arc::new(Mutex::new(vec![]));
 
     info!("Server Started:  {}", socket_path);
 

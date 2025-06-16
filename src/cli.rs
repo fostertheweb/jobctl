@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
@@ -16,7 +18,10 @@ pub struct Cli {
 #[derive(Subcommand, Serialize, Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Commands {
-    List,
+    List {
+        #[arg()]
+        dir: Option<PathBuf>,
+    },
     Register {
         #[arg(short, long)]
         pid: u32,

@@ -2,7 +2,6 @@ use base64::Engine;
 use base64::engine::general_purpose;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
@@ -20,9 +19,15 @@ use crate::utils::is_job_suspended;
 pub struct Job {
     pub pid: u32,
     pub command: String,
-    pub cwd: PathBuf,
     pub number: u8,
     pub suspended: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub struct Session {
+    pub jobs: Vec<Job>,
+    pub directory: PathBuf,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -36,7 +41,8 @@ pub struct ClientRequest {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ServerResponse {
-    List { jobs: HashMap<String, Vec<Job>> },
+    ListJobs { jobs: Vec<Job> },
+    ListSessions { sessions: Vec<Session> },
     Register { job: Job },
     Error { message: String },
 }
@@ -86,23 +92,18 @@ pub fn send_request(request: ClientRequest, should_start: Option<bool>) -> Value
     response
 }
 
-pub fn cleanup_sessions(
-    store: &Arc<Mutex<HashMap<String, Vec<Job>>>>,
-) -> std::sync::MutexGuard<'_, HashMap<String, Vec<Job>>> {
+pub fn cleanup_sessions(store: &Arc<Mutex<Vec<Session>>>) -> Vec<Session> {
     let mut sessions = store.lock().unwrap();
-    let keys = sessions.keys().cloned().collect::<Vec<String>>();
 
-    for key in keys {
-        let cwd = key.clone();
-        if let Some(jobs) = sessions.get_mut(&key) {
-            jobs.retain(|job| is_job_suspended(job.pid));
+    info!("Pruning Sessions: {:?}", sessions);
 
-            if jobs.is_empty() {
-                info!("Removing session for {}", cwd);
-                sessions.remove(&cwd);
-            }
-        }
-    }
+    sessions.iter_mut().for_each(|session| {
+        session.jobs.retain(|job| is_job_suspended(job.pid));
+    });
 
-    sessions
+    sessions.retain(|session| !session.jobs.is_empty());
+
+    info!("Updated Sessions: {:?}", sessions);
+
+    sessions.to_vec()
 }

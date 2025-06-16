@@ -9,10 +9,10 @@ fn main() -> std::io::Result<()> {
     let cwd = env::current_dir().expect("Failed to get current directory");
 
     match &cli.command {
-        Some(Commands::List) => {
+        Some(Commands::List { dir }) => {
             let request = ClientRequest {
-                action: Commands::List,
-                cwd,
+                action: Commands::List { dir: dir.clone() },
+                cwd: dir.as_ref().unwrap_or(&cwd).to_path_buf(),
             };
             let response = jobctl::sessions::send_request(request, None);
             println!("{}", serde_json::to_string_pretty(&response).unwrap());
