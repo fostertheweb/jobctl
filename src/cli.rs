@@ -9,7 +9,7 @@ pub const ZSH: &str = include_str!("../resources/hooks.zsh");
 #[command(version, about, long_about = None)]
 pub struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count)]
-    verbose: u8,
+    pub verbose: u8,
 
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -28,6 +28,10 @@ pub enum Commands {
         #[arg(short, long)]
         number: u8,
         #[arg(skip)]
+        command: String,
+    },
+    Run {
+        #[arg()]
         command: String,
     },
     Init {

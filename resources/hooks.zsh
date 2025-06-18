@@ -1,5 +1,3 @@
-# eval in ~/.zshrc
-
 function register_job() {
 	CODE=$?
 	case $CODE in

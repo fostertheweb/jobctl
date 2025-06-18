@@ -1,4 +1,5 @@
 use clap::Parser;
+use jobctl::utils::time_ago;
 use serde_json;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -12,7 +13,7 @@ use std::{
 use tracing::{error, info};
 
 use jobctl::cli::Commands;
-use jobctl::sessions::{ClientRequest, Job, ServerResponse, Session, cleanup_sessions};
+use jobctl::sessions::{ClientRequest, Job, JobOutput, ServerResponse, Session, cleanup_sessions};
 
 fn handle_client(mut stream: UnixStream, store: &Arc<Mutex<Vec<Session>>>) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -47,9 +48,18 @@ fn handle_client(mut stream: UnixStream, store: &Arc<Mutex<Vec<Session>>>) -> st
                         .iter()
                         .find(|s| s.directory == directory)
                         .expect("No jobs found for directory");
-                    ServerResponse::ListJobs {
-                        jobs: session.clone().jobs,
-                    }
+                    let jobs = session
+                        .jobs
+                        .clone()
+                        .iter()
+                        .map(|job| JobOutput {
+                            pid: job.pid,
+                            command: job.command.clone(),
+                            number: job.number,
+                            suspended: time_ago(job.suspended),
+                        })
+                        .collect();
+                    ServerResponse::ListJobs { jobs }
                 }
                 _ => ServerResponse::ListSessions { sessions },
             }
@@ -76,6 +86,11 @@ fn handle_client(mut stream: UnixStream, store: &Arc<Mutex<Vec<Session>>>) -> st
                 if session.jobs.iter().all(|j| j.pid != job.pid) {
                     session.jobs.push(job.clone());
                     info!("Adding to job to session: {:?}", session);
+                } else {
+                    info!(
+                        "Job with PID {} already exists in session: {:?}",
+                        job.pid, session
+                    );
                 }
             } else {
                 let session = Session {

@@ -25,6 +25,15 @@ pub struct Job {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
+pub struct JobOutput {
+    pub pid: u32,
+    pub command: String,
+    pub number: u8,
+    pub suspended: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
 pub struct Session {
     pub jobs: Vec<Job>,
     pub directory: PathBuf,
@@ -41,7 +50,7 @@ pub struct ClientRequest {
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ServerResponse {
-    ListJobs { jobs: Vec<Job> },
+    ListJobs { jobs: Vec<JobOutput> },
     ListSessions { sessions: Vec<Session> },
     Register { job: Job },
     Error { message: String },
