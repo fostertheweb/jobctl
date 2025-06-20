@@ -2,6 +2,7 @@ use clap::Parser;
 use jobctl::utils::time_ago;
 use serde_json;
 use std::path::PathBuf;
+use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{
@@ -16,6 +17,7 @@ use jobctl::cli::Commands;
 use jobctl::sessions::{ClientRequest, Job, JobOutput, ServerResponse, Session, cleanup_sessions};
 
 fn handle_client(mut stream: UnixStream, store: &Arc<Mutex<Vec<Session>>>) -> std::io::Result<()> {
+    let mut kill_after_response = false;
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut line = String::new();
 
@@ -44,6 +46,7 @@ fn handle_client(mut stream: UnixStream, store: &Arc<Mutex<Vec<Session>>>) -> st
 
             match dir {
                 Some(directory) => {
+                    let directory = PathBuf::from(directory);
                     let session = sessions
                         .iter()
                         .find(|s| s.directory == directory)
@@ -105,11 +108,19 @@ fn handle_client(mut stream: UnixStream, store: &Arc<Mutex<Vec<Session>>>) -> st
 
             ServerResponse::Register { job }
         }
+        Commands::Kill => {
+            kill_after_response = true;
+            ServerResponse::Kill
+        }
         _ => todo!(),
     };
 
     let payload = serde_json::to_string(&response).unwrap();
     writeln!(stream, "{}", payload)?;
+
+    if kill_after_response {
+        exit(0);
+    }
 
     Ok(())
 }

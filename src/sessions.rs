@@ -53,6 +53,7 @@ pub enum ServerResponse {
     ListJobs { jobs: Vec<JobOutput> },
     ListSessions { sessions: Vec<Session> },
     Register { job: Job },
+    Kill,
     Error { message: String },
 }
 

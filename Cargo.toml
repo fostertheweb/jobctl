@@ -3,6 +3,10 @@ name = "jobctl"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "job-server"
+path = "src/bin/server.rs"
+
 [dependencies]
 base64 = "0.22.1"
 clap = { version = "4.5.38", features = ["derive"] }

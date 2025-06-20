@@ -22,7 +22,7 @@ fn main() -> std::io::Result<()> {
         Some(Commands::List { dir }) => {
             let request = ClientRequest {
                 action: Commands::List { dir: dir.clone() },
-                cwd: dir.as_ref().unwrap_or(&cwd).to_path_buf(),
+                cwd,
             };
             let response = jobctl::sessions::send_request(request, None);
             // This needs to print for parsing by jq
@@ -47,6 +47,14 @@ fn main() -> std::io::Result<()> {
             info!("{}", serde_json::to_string_pretty(&response).unwrap());
         }
         Some(Commands::Run { command: _ }) => todo!(),
+        Some(Commands::Kill) => {
+            let request = ClientRequest {
+                action: Commands::Kill,
+                cwd,
+            };
+            let response = jobctl::sessions::send_request(request, Some(true));
+            info!("{}", serde_json::to_string_pretty(&response).unwrap());
+        }
         Some(Commands::Init { shell }) => {
             // TODO: add bash support
             let output = match shell.as_str() {

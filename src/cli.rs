@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use clap::{Parser, Subcommand};
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +18,7 @@ pub struct Cli {
 pub enum Commands {
     List {
         #[arg()]
-        dir: Option<PathBuf>,
+        dir: Option<String>,
     },
     Register {
         #[arg(short, long)]
@@ -34,6 +32,7 @@ pub enum Commands {
         #[arg()]
         command: String,
     },
+    Kill,
     Init {
         shell: String,
     },
