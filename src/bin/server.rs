@@ -2,6 +2,7 @@ use clap::Parser;
 use jobctl::utils::time_ago;
 use serde_json;
 use std::path::PathBuf;
+use std::process::Command as ProcessCommand;
 use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -111,6 +112,59 @@ fn handle_client(mut stream: UnixStream, store: &Arc<Mutex<Vec<Session>>>) -> st
         Commands::Kill => {
             kill_after_response = true;
             ServerResponse::Kill
+        }
+        Commands::Run { command } => {
+            // Spawn the command as a background process
+            let mut child = match ProcessCommand::new("sh").arg("-c").arg(&command).spawn() {
+                Ok(child) => child,
+                Err(e) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to spawn process: {}", e),
+                    ));
+                }
+            };
+
+            let pid = child.id();
+
+            let job = Job {
+                pid,
+                number: 0,
+                command: command.clone(),
+                suspended: SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or(Duration::new(0, 0))
+                    .as_secs(),
+            };
+
+            info!("Spawning new job: {:?}", job);
+
+            let mut sessions = store.lock().unwrap();
+            if let Some(session) = sessions.iter_mut().find(|s| s.directory == req.cwd) {
+                if session.jobs.iter().all(|j| j.pid != job.pid) {
+                    session.jobs.push(job.clone());
+                    info!("Adding spawned job to session: {:?}", session);
+                } else {
+                    info!(
+                        "Job with PID {} already exists in session: {:?}",
+                        job.pid, session
+                    );
+                }
+            } else {
+                let session = Session {
+                    jobs: vec![job.clone()],
+                    directory: req.cwd,
+                };
+
+                info!(
+                    "No session found, creating session for spawned job: {:?}",
+                    session
+                );
+
+                sessions.push(session);
+            }
+
+            ServerResponse::Register { job }
         }
         _ => todo!(),
     };

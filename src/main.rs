@@ -46,7 +46,16 @@ fn main() -> std::io::Result<()> {
             let response = jobctl::sessions::send_request(request, Some(true));
             info!("{}", serde_json::to_string_pretty(&response).unwrap());
         }
-        Some(Commands::Run { command: _ }) => todo!(),
+        Some(Commands::Run { command }) => {
+            let request = ClientRequest {
+                action: Commands::Run {
+                    command: command.to_string(),
+                },
+                cwd,
+            };
+            let response = jobctl::sessions::send_request(request, Some(true));
+            info!("{}", serde_json::to_string_pretty(&response).unwrap());
+        }
         Some(Commands::Kill) => {
             let request = ClientRequest {
                 action: Commands::Kill,
@@ -56,7 +65,7 @@ fn main() -> std::io::Result<()> {
             info!("{}", serde_json::to_string_pretty(&response).unwrap());
         }
         Some(Commands::Init { shell }) => {
-            // TODO: add bash support
+            // TODO: add bash, fish support
             let output = match shell.as_str() {
                 "zsh" => ZSH,
                 _ => "Shell not supported.",
