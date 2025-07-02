@@ -1,6 +1,6 @@
 use clap::Parser;
 use jobctl::utils::time_ago;
-use serde_json;
+
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
 use std::process::exit;
@@ -42,8 +42,8 @@ fn handle_client(mut stream: UnixStream, store: &Arc<Mutex<Vec<Session>>>) -> st
     info!("Processing action: {:?}", req.action);
 
     let response = match req.action {
-        Commands::List { dir } => {
-            let sessions = cleanup_sessions(&store);
+        Commands::List { dir, fzf: _ } => {
+            let sessions = cleanup_sessions(store);
 
             match dir {
                 Some(directory) => {
@@ -115,7 +115,7 @@ fn handle_client(mut stream: UnixStream, store: &Arc<Mutex<Vec<Session>>>) -> st
         }
         Commands::Run { command } => {
             // Spawn the command as a background process
-            let mut child = match ProcessCommand::new("sh").arg("-c").arg(&command).spawn() {
+            let child = match ProcessCommand::new("sh").arg("-c").arg(&command).spawn() {
                 Ok(child) => child,
                 Err(e) => {
                     return Err(std::io::Error::new(

@@ -17,6 +17,8 @@ pub struct Cli {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum Commands {
     List {
+        #[arg(long)]
+        fzf: bool,
         #[arg()]
         dir: Option<String>,
     },

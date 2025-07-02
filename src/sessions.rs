@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{self, Command};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -57,7 +57,7 @@ pub enum ServerResponse {
     Error { message: String },
 }
 
-pub fn encode_path(path: &PathBuf) -> String {
+pub fn encode_path(path: &Path) -> String {
     general_purpose::URL_SAFE_NO_PAD.encode(path.to_string_lossy().as_bytes())
 }
 
@@ -65,9 +65,10 @@ pub fn start_server() {
     let exe = env::current_exe().expect("Failed to get executable path");
     let server_path = exe.with_file_name("server");
 
-    Command::new(server_path)
+    let mut child = Command::new(server_path)
         .spawn()
         .expect("Failed to start server.");
+    child.wait().expect("Failed to wait on server process");
     thread::sleep(Duration::from_millis(500));
 }
 
@@ -97,8 +98,23 @@ pub fn send_request(request: ClientRequest, should_start: Option<bool>) -> Value
         .read_line(&mut resp_line)
         .expect("Failed to read response");
 
-    let response: serde_json::Value =
-        serde_json::from_str(&resp_line).expect("Failed to parse JSON response");
+    // Debug: print what we received
+    eprintln!("DEBUG: Received response line: '{}'", resp_line.trim());
+    eprintln!("DEBUG: Response line length: {}", resp_line.len());
+
+    if resp_line.trim().is_empty() {
+        eprintln!("ERROR: Received empty response from server");
+        process::exit(1);
+    }
+
+    let response: serde_json::Value = match serde_json::from_str(&resp_line) {
+        Ok(val) => val,
+        Err(e) => {
+            eprintln!("Failed to parse JSON response: {}", e);
+            eprintln!("Raw response: '{}'", resp_line);
+            process::exit(1);
+        }
+    };
     response
 }
 

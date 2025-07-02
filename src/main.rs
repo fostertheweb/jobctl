@@ -1,7 +1,8 @@
 use clap::Parser;
 use jobctl::cli::{Cli, Commands, ZSH};
-use jobctl::sessions::ClientRequest;
-use std::env;
+use jobctl::sessions::{ClientRequest, ServerResponse};
+use jobctl::utils::{between_bracket_and_colon, run_fzf_with_input};
+use std::{env, process};
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
 use tracing::info;
 
@@ -19,12 +20,43 @@ fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt().with_max_level(level).init();
 
     match &cli.command {
-        Some(Commands::List { dir }) => {
+        Some(Commands::List { fzf, dir }) => {
             let request = ClientRequest {
-                action: Commands::List { dir: dir.clone() },
+                action: Commands::List {
+                    fzf: *fzf,
+                    dir: dir.clone(),
+                },
                 cwd,
             };
             let response = jobctl::sessions::send_request(request, None);
+
+            if *fzf {
+                if let Some(_) = dir {
+                    let mut input = String::new();
+                    let list: ServerResponse = serde_json::from_value(response).unwrap();
+                    if let ServerResponse::ListJobs { jobs } = list {
+                        jobs.iter().for_each(|job| {
+                            input.push_str(&format!(
+                                "[{}:{}] - {}, {} \n",
+                                job.number, job.pid, job.command, job.suspended
+                            ))
+                        });
+                    }
+
+                    if let Ok(selected) = run_fzf_with_input(&input) {
+                        if let Some(job) = between_bracket_and_colon(&selected) {
+                            println!("fg %{}", job)
+                        } else {
+                            eprintln!("no job ID found in line: {}", selected);
+                        }
+                    }
+
+                    process::exit(0);
+                } else {
+                    todo!("Pass sessions to fzf");
+                }
+            }
+
             // This needs to print for parsing by jq
             println!("{}", serde_json::to_string_pretty(&response).unwrap());
         }
@@ -34,7 +66,7 @@ fn main() -> std::io::Result<()> {
             );
             let process = sys
                 .process(Pid::from(*pid as usize))
-                .expect(format!("Did not find process with pid {}", pid).as_str());
+                .unwrap_or_else(|| panic!("Did not find process with pid {}", pid));
             let request = ClientRequest {
                 action: Commands::Register {
                     pid: *pid,
@@ -61,7 +93,7 @@ fn main() -> std::io::Result<()> {
                 action: Commands::Kill,
                 cwd,
             };
-            let response = jobctl::sessions::send_request(request, Some(true));
+            let response = jobctl::sessions::send_request(request, None);
             info!("{}", serde_json::to_string_pretty(&response).unwrap());
         }
         Some(Commands::Init { shell }) => {
