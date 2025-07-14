@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, RefreshKind, System};
 
-use crate::sessions::JobOutput;
+use crate::sessions::{JobOutput, Session};
 
 pub fn is_job_suspended(pid: u32) -> bool {
     let sys = System::new_with_specifics(
@@ -43,7 +43,17 @@ pub fn time_ago(timestamp: u64) -> String {
     }
 }
 
-pub fn build_fzf_input(jobs: Vec<JobOutput>) -> (HashMap<u8, String>, String) {
+pub fn build_fzf_sessions_input(sessions: Vec<Session>) -> String {
+    let mut input = String::new();
+
+    sessions
+        .iter()
+        .for_each(|session| input.push_str(&format!("{}\n", session.directory.display())));
+
+    input
+}
+
+pub fn build_fzf_jobs_input(jobs: Vec<JobOutput>) -> (HashMap<u8, String>, String) {
     let mut jobs_map = HashMap::new();
 
     jobs.iter().for_each(|job| {

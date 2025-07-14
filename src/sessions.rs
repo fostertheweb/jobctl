@@ -64,12 +64,12 @@ pub fn encode_path(path: &Path) -> String {
 
 pub fn start_server() {
     let exe = env::current_exe().expect("Failed to get executable path");
-    let server_path = exe.with_file_name("server");
+    let server_path = exe.with_file_name("job-server");
 
-    let mut child = Command::new(server_path)
+    Command::new(server_path)
         .spawn()
         .expect("Failed to start server.");
-    child.wait().expect("Failed to wait on server process");
+
     thread::sleep(Duration::from_millis(500));
 }
 
