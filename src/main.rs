@@ -6,6 +6,24 @@ use std::{env, process};
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
 use tracing::info;
 
+use jobctl::JobCtlError;
+
+fn handle_response(response: Result<serde_json::Value, JobCtlError>) {
+    match response {
+        Ok(res) => {
+            println!("{}", serde_json::to_string_pretty(&res).unwrap());
+        }
+        Err(e) => {
+            match e {
+                JobCtlError::Io(err) => eprintln!("Error: {}", err),
+                JobCtlError::Json(err) => eprintln!("Error: {}", err),
+                JobCtlError::Server(msg) => eprintln!("Error: {}", msg),
+            }
+            process::exit(1);
+        }
+    }
+}
+
 fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
     let cwd = env::current_dir().expect("Failed to get current directory");
@@ -33,7 +51,7 @@ fn main() -> std::io::Result<()> {
             if *fzf {
                 if let Some(_) = dir {
                     let mut input = String::new();
-                    let list: ServerResponse = serde_json::from_value(response).unwrap();
+                    let list: ServerResponse = serde_json::from_value(response.unwrap()).unwrap();
                     if let ServerResponse::ListJobs { jobs } = list {
                         jobs.iter().for_each(|job| {
                             input.push_str(&format!(
@@ -57,8 +75,7 @@ fn main() -> std::io::Result<()> {
                 }
             }
 
-            // This needs to print for parsing by jq
-            println!("{}", serde_json::to_string_pretty(&response).unwrap());
+            handle_response(response);
         }
         Some(Commands::Register { pid, number, .. }) => {
             let sys = System::new_with_specifics(
@@ -76,7 +93,7 @@ fn main() -> std::io::Result<()> {
                 cwd,
             };
             let response = jobctl::sessions::send_request(request, Some(true));
-            info!("{}", serde_json::to_string_pretty(&response).unwrap());
+            handle_response(response);
         }
         Some(Commands::Run { command }) => {
             let request = ClientRequest {
@@ -86,7 +103,7 @@ fn main() -> std::io::Result<()> {
                 cwd,
             };
             let response = jobctl::sessions::send_request(request, Some(true));
-            info!("{}", serde_json::to_string_pretty(&response).unwrap());
+            handle_response(response);
         }
         Some(Commands::Kill) => {
             let request = ClientRequest {
@@ -94,7 +111,7 @@ fn main() -> std::io::Result<()> {
                 cwd,
             };
             let response = jobctl::sessions::send_request(request, None);
-            info!("{}", serde_json::to_string_pretty(&response).unwrap());
+            handle_response(response);
         }
         Some(Commands::Init { shell }) => {
             // TODO: add bash, fish support

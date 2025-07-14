@@ -72,7 +72,9 @@ pub fn start_server() {
     thread::sleep(Duration::from_millis(500));
 }
 
-pub fn send_request(request: ClientRequest, should_start: Option<bool>) -> Value {
+use crate::JobCtlError;
+
+pub fn send_request(request: ClientRequest, should_start: Option<bool>) -> Result<Value, JobCtlError> {
     let should_start = should_start.unwrap_or(false);
     let uid = unsafe { libc::getuid() };
     let socket_path = format!("/tmp/jobctl-{}.sock", uid);
@@ -82,40 +84,35 @@ pub fn send_request(request: ClientRequest, should_start: Option<bool>) -> Value
         Err(_) => {
             if should_start {
                 start_server();
-                UnixStream::connect(&socket_path).expect("Failed to connect to server")
+                UnixStream::connect(&socket_path).map_err(JobCtlError::Io)?
             } else {
-                println!("Server not running, no sessions found.");
-                process::exit(0);
+                return Err(JobCtlError::Server(
+                    "Server not running, no sessions found.".to_string(),
+                ));
             }
         }
     };
-    let mut reader = BufReader::new(stream.try_clone().expect("Failed to clone UnixStream"));
-    let json = serde_json::to_string(&request).expect("Failed to serialize request");
+    let mut reader = BufReader::new(stream.try_clone().map_err(|e| JobCtlError::Io(e))?);
+    let json = serde_json::to_string(&request).map_err(JobCtlError::Json)?;
 
-    writeln!(stream, "{}", json).expect("Failed to write to stream");
+    writeln!(stream, "{}", json).map_err(JobCtlError::Io)?;
 
     reader
         .read_line(&mut resp_line)
-        .expect("Failed to read response");
+        .map_err(JobCtlError::Io)?;
 
     // Debug: print what we received
     eprintln!("DEBUG: Received response line: '{}'", resp_line.trim());
     eprintln!("DEBUG: Response line length: {}", resp_line.len());
 
     if resp_line.trim().is_empty() {
-        eprintln!("ERROR: Received empty response from server");
-        process::exit(1);
+        return Err(JobCtlError::Server(
+            "Received empty response from server".to_string(),
+        ));
     }
 
-    let response: serde_json::Value = match serde_json::from_str(&resp_line) {
-        Ok(val) => val,
-        Err(e) => {
-            eprintln!("Failed to parse JSON response: {}", e);
-            eprintln!("Raw response: '{}'", resp_line);
-            process::exit(1);
-        }
-    };
-    response
+    let response: serde_json::Value = serde_json::from_str(&resp_line).map_err(JobCtlError::Json)?;
+    Ok(response)
 }
 
 pub fn cleanup_sessions(store: &Arc<Mutex<Vec<Session>>>) -> Vec<Session> {
