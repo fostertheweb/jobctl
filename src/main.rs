@@ -4,7 +4,6 @@ use jobctl::sessions::{ClientRequest, ServerResponse};
 use jobctl::utils::{between_bracket_and_colon, run_fzf_with_input};
 use std::{env, process};
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
-use tracing::info;
 
 use jobctl::JobCtlError;
 
