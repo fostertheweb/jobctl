@@ -5,12 +5,13 @@ use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::process::{Command};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{env, thread};
 use tracing::info;
 
+use crate::ClientError;
 use crate::cli::Commands;
 use crate::utils::is_job_suspended;
 
@@ -72,9 +73,10 @@ pub fn start_server() {
     thread::sleep(Duration::from_millis(500));
 }
 
-use crate::JobCtlError;
-
-pub fn send_request(request: ClientRequest, should_start: Option<bool>) -> Result<Value, JobCtlError> {
+pub fn send_request(
+    request: ClientRequest,
+    should_start: Option<bool>,
+) -> Result<Value, ClientError> {
     let should_start = should_start.unwrap_or(false);
     let uid = unsafe { libc::getuid() };
     let socket_path = format!("/tmp/jobctl-{}.sock", uid);
@@ -84,34 +86,24 @@ pub fn send_request(request: ClientRequest, should_start: Option<bool>) -> Resul
         Err(_) => {
             if should_start {
                 start_server();
-                UnixStream::connect(&socket_path).map_err(JobCtlError::Io)?
+                UnixStream::connect(&socket_path)?
             } else {
-                return Err(JobCtlError::Server(
-                    "Server not running, no sessions found.".to_string(),
-                ));
+                return Err(ClientError::ServerNotRunning);
             }
         }
     };
-    let mut reader = BufReader::new(stream.try_clone().map_err(|e| JobCtlError::Io(e))?);
-    let json = serde_json::to_string(&request).map_err(JobCtlError::Json)?;
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let json = serde_json::to_string(&request)?;
 
-    writeln!(stream, "{}", json).map_err(JobCtlError::Io)?;
+    writeln!(stream, "{}", json)?;
 
-    reader
-        .read_line(&mut resp_line)
-        .map_err(JobCtlError::Io)?;
-
-    // Debug: print what we received
-    eprintln!("DEBUG: Received response line: '{}'", resp_line.trim());
-    eprintln!("DEBUG: Response line length: {}", resp_line.len());
+    reader.read_line(&mut resp_line)?;
 
     if resp_line.trim().is_empty() {
-        return Err(JobCtlError::Server(
-            "Received empty response from server".to_string(),
-        ));
+        return Err(ClientError::EmptyResponse);
     }
 
-    let response: serde_json::Value = serde_json::from_str(&resp_line).map_err(JobCtlError::Json)?;
+    let response: serde_json::Value = serde_json::from_str(&resp_line)?;
     Ok(response)
 }
 

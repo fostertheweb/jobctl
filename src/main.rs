@@ -1,23 +1,19 @@
 use clap::Parser;
 use jobctl::cli::{Cli, Commands, ZSH};
 use jobctl::sessions::{ClientRequest, ServerResponse};
-use jobctl::utils::{between_bracket_and_colon, run_fzf_with_input};
+use jobctl::utils::{build_fzf_input, run_fzf_cmd};
 use std::{env, process};
 use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, System};
 
-use jobctl::JobCtlError;
+use jobctl::ClientError;
 
-fn handle_response(response: Result<serde_json::Value, JobCtlError>) {
+fn handle_response(response: Result<serde_json::Value, ClientError>) {
     match response {
         Ok(res) => {
             println!("{}", serde_json::to_string_pretty(&res).unwrap());
         }
         Err(e) => {
-            match e {
-                JobCtlError::Io(err) => eprintln!("Error: {}", err),
-                JobCtlError::Json(err) => eprintln!("Error: {}", err),
-                JobCtlError::Server(msg) => eprintln!("Error: {}", msg),
-            }
+            eprintln!("Error: {}", e);
             process::exit(1);
         }
     }
@@ -48,26 +44,32 @@ fn main() -> std::io::Result<()> {
             let response = jobctl::sessions::send_request(request, None);
 
             if *fzf {
-                if let Some(_) = dir {
-                    let mut input = String::new();
-                    let list: ServerResponse = serde_json::from_value(response.unwrap()).unwrap();
-                    if let ServerResponse::ListJobs { jobs } = list {
-                        jobs.iter().for_each(|job| {
-                            input.push_str(&format!(
-                                "[{}:{}] - {}, {} \n",
-                                job.number, job.pid, job.command, job.suspended
-                            ))
-                        });
-                    }
+                if dir.is_some() {
+                    match response {
+                        Ok(res) => match serde_json::from_value::<ServerResponse>(res) {
+                            Ok(ServerResponse::ListJobs { jobs }) => {
+                                let (jobs_map, input) = build_fzf_input(jobs);
 
-                    if let Ok(selected) = run_fzf_with_input(&input) {
-                        if let Some(job) = between_bracket_and_colon(&selected) {
-                            println!("fg %{}", job)
-                        } else {
-                            eprintln!("no job ID found in line: {}", selected);
+                                if let Ok(selected) = run_fzf_cmd(&input) {
+                                    let job_number = jobs_map
+                                        .iter()
+                                        .find(|(_, v)| *v == &selected)
+                                        .map(|(k, _)| k);
+                                    if let Some(job) = job_number {
+                                        println!("fg %{}", job)
+                                    } else {
+                                        eprintln!("no job ID found in line: {}", selected);
+                                    }
+                                }
+                            }
+                            Ok(_) => eprintln!("Error: Unexpected response format"),
+                            Err(e) => eprintln!("Error parsing response: {}", e),
+                        },
+                        Err(e) => {
+                            eprintln!("Error: {}", e);
+                            process::exit(1);
                         }
                     }
-
                     process::exit(0);
                 } else {
                     todo!("Pass sessions to fzf");

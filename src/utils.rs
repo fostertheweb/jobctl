@@ -1,8 +1,11 @@
-use std::io::{Write};
+use std::collections::HashMap;
+use std::io::Write;
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sysinfo::{Pid, ProcessRefreshKind, ProcessStatus, RefreshKind, System};
+
+use crate::sessions::JobOutput;
 
 pub fn is_job_suspended(pid: u32) -> bool {
     let sys = System::new_with_specifics(
@@ -40,20 +43,39 @@ pub fn time_ago(timestamp: u64) -> String {
     }
 }
 
-pub fn run_fzf_with_input(input: &str) -> Result<String, Box<dyn std::error::Error>> {
+pub fn build_fzf_input(jobs: Vec<JobOutput>) -> (HashMap<u8, String>, String) {
+    let mut jobs_map = HashMap::new();
+
+    jobs.iter().for_each(|job| {
+        jobs_map.insert(
+            job.number,
+            format!(
+                "[{}:{}] - {}, {} \n",
+                job.number, job.pid, job.command, job.suspended
+            ),
+        );
+    });
+
+    let input = jobs_map
+        .clone()
+        .into_values()
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    (jobs_map, input)
+}
+
+pub fn run_fzf_cmd(input: &str) -> Result<String, Box<dyn std::error::Error>> {
     let mut child = Command::new("fzf")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()?;
 
-    // Write input to stdin
     if let Some(stdin) = child.stdin.take() {
         let mut stdin = stdin;
         stdin.write_all(input.as_bytes())?;
-        // stdin is dropped here, closing the pipe
     }
 
-    // Wait for fzf to finish and capture output
     let output = child.wait_with_output()?;
 
     if output.status.success() {
@@ -61,13 +83,4 @@ pub fn run_fzf_with_input(input: &str) -> Result<String, Box<dyn std::error::Err
     } else {
         Err("fzf selection cancelled or failed".into())
     }
-}
-
-pub fn between_bracket_and_colon(s: &str) -> Option<&str> {
-    // find the first '['
-    let start = s.find('[')? + 1;
-    // find the first ':' *after* that '['
-    let end = s[start..].find(':')? + start;
-    // slice out everything between them
-    Some(&s[start..end])
 }
